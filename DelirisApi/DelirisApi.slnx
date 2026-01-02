@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/" />
+  <Folder Name="/src/Aspire/">
+    <Project Path="src/Aspire/DelirisApi.AppHost/DelirisApi.AppHost.csproj" />
+    <Project Path="src/Aspire/DelirisApi.ServiceDefaults/DelirisApi.ServiceDefaults.csproj" />
+  </Folder>
+  <Folder Name="/src/BuildingBlocks/" />
+  <Folder Name="/src/Services/" />
+  <Folder Name="/src/Services/Identity/">
+    <Project Path="src/Services/Identity/IdentityService.Api/IdentityService.Api.csproj" />
+    <Project Path="src/Services/Identity/IdentityService.Domain/IdentityService.Domain.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,39 @@
+# DelirisApi .NET Project
+
+## IDE
+DelirisApi/**/.vs/
+DelirisApi/**/.idea/
+
+## Build results
+DelirisApi/**/bin/
+DelirisApi/**/obj/
+
+## Visual Studio
+DelirisApi/**/.vs/
+DelirisApi/**/*.user
+DelirisApi/**/*.suo
+DelirisApi/**/*.userosscache
+DelirisApi/**/*.sln.docstates
+
+## User-specific files
+DelirisApi/**/*.rsuser
+DelirisApi/**/launchSettings.json
+
+## NuGet
+DelirisApi/**/packages/
+DelirisApi/**/*.nupkg
+
+## Rider
+DelirisApi/**/.idea/
+
+## macOS
+DelirisApi/**/.DS_Store
+
+## Windows
+DelirisApi/**/Thumbs.db
+
+## Logs
+DelirisApi/**/*.log
+
+## User secrets
+DelirisApi/**/secrets.json
