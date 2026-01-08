@@ -1,0 +1,14 @@
+global using Xunit;
+global using FluentAssertions;
+global using Moq;
+global using Bogus;
+global using Deliris.BuildingBlocks.Domain.Abstractions.Entities;
+global using Deliris.BuildingBlocks.Domain.Abstractions.ValueObjects;
+global using Deliris.BuildingBlocks.Domain.Abstractions.Events;
+global using Deliris.BuildingBlocks.Domain.Abstractions.BusinessRules;
+global using Deliris.BuildingBlocks.Domain.Abstractions.Enumerations;
+global using Deliris.BuildingBlocks.Domain.Abstractions.Common;
+global using Deliris.BuildingBlocks.Domain.Abstractions.Specifications;
+global using Deliris.BuildingBlocks.Domain.Abstractions.Repositories;
+global using Deliris.BuildingBlocks.Domain.Exceptions;
+global using Deliris.BuildingBlocks.Domain.Primitives;

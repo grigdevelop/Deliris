@@ -9,7 +9,7 @@
   </PropertyGroup>
   
   <ItemGroup>
-    <ProjectReference Include="..\..\Services\Identity\IdentityService.Api\IdentityService.Api.csproj" />
+    <ProjectReference Include="..\..\Services\Identity\Deliris.IdentityService.Api\Deliris.IdentityService.Api.csproj" />
   </ItemGroup>
 
 </Project>
