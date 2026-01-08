@@ -648,3 +648,482 @@ namespace Deliris.BuildingBlocks.Application.Behaviors
     /// Pipeline behavior that wraps command execution in a database transaction.
     /// </summary>
     public
+
+
+Deliris.IdentityService.Domain implementation details with using Deliris.BuildingBlocks.Domain.Abstractions (or also maybe Deliris.BuildingBlocks.Domain) and Microsoft.AspNetCore.Identity.EntityFrameworkCore.
+
+
+## Deliris.IdentityService.Domain Implementation Details
+
+This section outlines the implementation approach for the Identity Service Domain layer, utilizing:
+- `Deliris.BuildingBlocks.Domain.Abstractions` (and potentially `Deliris.BuildingBlocks.Domain`)
+- `Microsoft.AspNetCore.Identity.EntityFrameworkCore`
+
+The implementation should balance DDD principles from the BuildingBlocks with ASP.NET Core Identity's requirements for authentication and authorization.
+
+### Architecture Overview
+
+The Identity Service Domain layer will be structured to maintain DDD principles while integrating with ASP.NET Core Identity. The approach involves:
+
+1. **Entity Design Strategy**:
+   - Custom identity entities that extend ASP.NET Core Identity base classes
+   - Integration with `AuditableAggregateRoot<TId>` from BuildingBlocks for domain events and auditing
+   - Use of Value Objects for complex properties (e.g., Email, PhoneNumber)
+
+2. **Hybrid Approach**:
+   - Identity entities will NOT directly inherit from BuildingBlocks domain primitives
+   - Instead, use composition and domain events to maintain DDD patterns
+   - Leverage ASP.NET Core Identity's built-in features for authentication/authorization
+   - Apply BuildingBlocks patterns for business logic and domain events
+
+### Project Structure
+
+```
+Deliris.IdentityService.Domain/
+├── Entities/
+│   ├── User.cs                      # Custom IdentityUser with domain logic
+│   ├── Role.cs                      # Custom IdentityRole with domain logic
+│   ├── UserRole.cs                  # Many-to-many relationship
+│   ├── UserClaim.cs                 # User claims
+│   ├── RoleClaim.cs                 # Role claims
+│   ├── UserLogin.cs                 # External login providers
+│   └── UserToken.cs                 # Authentication tokens
+│
+├── ValueObjects/
+│   ├── Email.cs                     # Email value object with validation
+│   ├── PhoneNumber.cs               # Phone number value object
+│   └── UserProfile.cs               # User profile information
+│
+├── Events/
+│   ├── UserRegisteredEvent.cs       # Domain event for user registration
+│   ├── UserEmailChangedEvent.cs     # Domain event for email change
+│   ├── UserProfileUpdatedEvent.cs   # Domain event for profile updates
+│   └── UserDeactivatedEvent.cs      # Domain event for user deactivation
+│
+├── Repositories/
+│   ├── IUserRepository.cs           # User repository interface
+│   ├── IRoleRepository.cs           # Role repository interface
+│   └── IIdentityUnitOfWork.cs       # Unit of work for identity operations
+│
+├── Exceptions/
+│   ├── UserAlreadyExistsException.cs
+│   ├── InvalidEmailException.cs
+│   └── UserNotFoundException.cs
+│
+└── Constants/
+    └── IdentityConstants.cs         # Identity-related constants
+```
+
+### Implementation Details
+
+#### 1. Custom User Entity
+
+The `User` entity extends `IdentityUser<Guid>` and incorporates domain events:
+
+```csharp
+// Entities/User.cs
+using Microsoft.AspNetCore.Identity;
+using Deliris.BuildingBlocks.Domain.Abstractions;
+
+namespace Deliris.IdentityService.Domain.Entities;
+
+public class User : IdentityUser<Guid>
+{
+    private readonly List<IDomainEvent> _domainEvents = new();
+
+    // Value Objects
+    public Email EmailAddress { get; private set; } = null!;
+    public UserProfile Profile { get; private set; } = null!;
+
+    // Audit Fields
+    public DateTime CreatedAt { get; private set; }
+    public DateTime? UpdatedAt { get; private set; }
+    public string? CreatedBy { get; private set; }
+    public string? UpdatedBy { get; private set; }
+
+    // Soft Delete
+    public bool IsDeleted { get; private set; }
+    public DateTime? DeletedAt { get; private set; }
+
+    // Domain Events
+    public IReadOnlyList<IDomainEvent> DomainEvents => _domainEvents.AsReadOnly();
+
+    // Navigation Properties
+    public virtual ICollection<UserRole> UserRoles { get; set; } = new List<UserRole>();
+    public virtual ICollection<UserClaim> Claims { get; set; } = new List<UserClaim>();
+    public virtual ICollection<UserLogin> Logins { get; set; } = new List<UserLogin>();
+    public virtual ICollection<UserToken> Tokens { get; set; } = new List<UserToken>();
+
+    // Private constructor for EF Core
+    private User() { }
+
+    // Factory method for user registration
+    public static User Register(
+        string username,
+        Email email,
+        UserProfile profile,
+        string? createdBy = null)
+    {
+        var user = new User
+        {
+            Id = Guid.NewGuid(),
+            UserName = username,
+            EmailAddress = email,
+            Email = email.Value,
+            Profile = profile,
+            CreatedAt = DateTime.UtcNow,
+            CreatedBy = createdBy,
+            SecurityStamp = Guid.NewGuid().ToString(),
+            ConcurrencyStamp = Guid.NewGuid().ToString()
+        };
+
+        user.RaiseDomainEvent(new UserRegisteredEvent(
+            user.Id,
+            user.UserName,
+            user.EmailAddress.Value,
+            user.CreatedAt));
+
+        return user;
+    }
+
+    public void UpdateProfile(UserProfile newProfile, string? updatedBy = null)
+    {
+        Profile = newProfile;
+        UpdatedAt = DateTime.UtcNow;
+        UpdatedBy = updatedBy;
+
+        RaiseDomainEvent(new UserProfileUpdatedEvent(Id, Profile, UpdatedAt.Value));
+    }
+
+    public void ChangeEmail(Email newEmail, string? updatedBy = null)
+    {
+        var oldEmail = EmailAddress.Value;
+        EmailAddress = newEmail;
+        Email = newEmail.Value;
+        EmailConfirmed = false;
+        UpdatedAt = DateTime.UtcNow;
+        UpdatedBy = updatedBy;
+
+        RaiseDomainEvent(new UserEmailChangedEvent(Id, oldEmail, newEmail.Value, UpdatedAt.Value));
+    }
+
+    public void Deactivate(string? deletedBy = null)
+    {
+        IsDeleted = true;
+        DeletedAt = DateTime.UtcNow;
+        UpdatedBy = deletedBy;
+
+        RaiseDomainEvent(new UserDeactivatedEvent(Id, DeletedAt.Value));
+    }
+
+    public void ConfirmEmail()
+    {
+        EmailConfirmed = true;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    public void ConfirmPhoneNumber()
+    {
+        PhoneNumberConfirmed = true;
+        UpdatedAt = DateTime.UtcNow;
+    }
+
+    private void RaiseDomainEvent(IDomainEvent domainEvent)
+    {
+        _domainEvents.Add(domainEvent);
+    }
+
+    public void ClearDomainEvents()
+    {
+        _domainEvents.Clear();
+    }
+}
+```
+
+#### 2. Custom Role Entity
+
+```csharp
+// Entities/Role.cs
+using Microsoft.AspNetCore.Identity;
+
+namespace Deliris.IdentityService.Domain.Entities;
+
+public class Role : IdentityRole<Guid>
+{
+    public string? Description { get; set; }
+    public DateTime CreatedAt { get; private set; }
+    public DateTime? UpdatedAt { get; private set; }
+    public bool IsDeleted { get; private set; }
+
+    // Navigation Properties
+    public virtual ICollection<UserRole> UserRoles { get; set; } = new List<UserRole>();
+    public virtual ICollection<RoleClaim> RoleClaims { get; set; } = new List<RoleClaim>();
+
+    private Role() { }
+
+    public static Role Create(string name, string? description = null)
+    {
+        return new Role
+        {
+            Id = Guid.NewGuid(),
+            Name = name,
+            NormalizedName = name.ToUpperInvariant(),
+            Description = description,
+            CreatedAt = DateTime.UtcNow,
+            ConcurrencyStamp = Guid.NewGuid().ToString()
+        };
+    }
+}
+```
+
+#### 3. Supporting Entities
+
+```csharp
+// Entities/UserRole.cs
+using Microsoft.AspNetCore.Identity;
+
+namespace Deliris.IdentityService.Domain.Entities;
+
+public class UserRole : IdentityUserRole<Guid>
+{
+    public virtual User User { get; set; } = null!;
+    public virtual Role Role { get; set; } = null!;
+}
+
+// Entities/UserClaim.cs
+public class UserClaim : IdentityUserClaim<Guid>
+{
+    public virtual User User { get; set; } = null!;
+}
+
+// Entities/RoleClaim.cs
+public class RoleClaim : IdentityRoleClaim<Guid>
+{
+    public virtual Role Role { get; set; } = null!;
+}
+
+// Entities/UserLogin.cs
+public class UserLogin : IdentityUserLogin<Guid>
+{
+    public virtual User User { get; set; } = null!;
+}
+
+// Entities/UserToken.cs
+public class UserToken : IdentityUserToken<Guid>
+{
+    public virtual User User { get; set; } = null!;
+}
+```
+
+#### 4. Value Objects
+
+```csharp
+// ValueObjects/Email.cs
+using Deliris.BuildingBlocks.Domain.Abstractions;
+
+namespace Deliris.IdentityService.Domain.ValueObjects;
+
+public sealed class Email : ValueObject
+{
+    public string Value { get; }
+
+    private Email(string value)
+    {
+        Value = value;
+    }
+
+    public static Result<Email> Create(string email)
+    {
+        if (string.IsNullOrWhiteSpace(email))
+        {
+            return Result.Failure<Email>(new Error(
+                "Email.Empty",
+                "Email cannot be empty",
+                ErrorType.Validation));
+        }
+
+        email = email.Trim().ToLowerInvariant();
+
+        if (!IsValidEmail(email))
+        {
+            return Result.Failure<Email>(new Error(
+                "Email.Invalid",
+                "Email format is invalid",
+                ErrorType.Validation));
+        }
+
+        return Result.Success(new Email(email));
+    }
+
+    private static bool IsValidEmail(string email)
+    {
+        try
+        {
+            var addr = new System.Net.Mail.MailAddress(email);
+            return addr.Address == email;
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
+    protected override IEnumerable<object> GetEqualityComponents()
+    {
+        yield return Value;
+    }
+}
+
+// ValueObjects/UserProfile.cs
+public sealed class UserProfile : ValueObject
+{
+    public string FirstName { get; }
+    public string LastName { get; }
+    public string? DisplayName { get; }
+    public DateTime? DateOfBirth { get; }
+
+    private UserProfile(string firstName, string lastName, string? displayName, DateTime? dateOfBirth)
+    {
+        FirstName = firstName;
+        LastName = lastName;
+        DisplayName = displayName;
+        DateOfBirth = dateOfBirth;
+    }
+
+    public static Result<UserProfile> Create(
+        string firstName,
+        string lastName,
+        string? displayName = null,
+        DateTime? dateOfBirth = null)
+    {
+        if (string.IsNullOrWhiteSpace(firstName))
+        {
+            return Result.Failure<UserProfile>(new Error(
+                "UserProfile.FirstNameEmpty",
+                "First name cannot be empty",
+                ErrorType.Validation));
+        }
+
+        if (string.IsNullOrWhiteSpace(lastName))
+        {
+            return Result.Failure<UserProfile>(new Error(
+                "UserProfile.LastNameEmpty",
+                "Last name cannot be empty",
+                ErrorType.Validation));
+        }
+
+        if (dateOfBirth.HasValue && dateOfBirth.Value > DateTime.UtcNow)
+        {
+            return Result.Failure<UserProfile>(new Error(
+                "UserProfile.InvalidDateOfBirth",
+                "Date of birth cannot be in the future",
+                ErrorType.Validation));
+        }
+
+        return Result.Success(new UserProfile(
+            firstName.Trim(),
+            lastName.Trim(),
+            displayName?.Trim(),
+            dateOfBirth));
+    }
+
+    public string FullName => $"{FirstName} {LastName}";
+
+    protected override IEnumerable<object> GetEqualityComponents()
+    {
+        yield return FirstName;
+        yield return LastName;
+        yield return DisplayName ?? string.Empty;
+        yield return DateOfBirth ?? DateTime.MinValue;
+    }
+}
+```
+
+#### 5. Domain Events
+
+```csharp
+// Events/UserRegisteredEvent.cs
+using Deliris.BuildingBlocks.Domain.Abstractions;
+
+namespace Deliris.IdentityService.Domain.Events;
+
+public sealed record UserRegisteredEvent(
+    Guid UserId,
+    string UserName,
+    string Email,
+    DateTime RegisteredAt) : IDomainEvent
+{
+    public DateTime OccurredOn { get; } = DateTime.UtcNow;
+}
+
+// Events/UserEmailChangedEvent.cs
+public sealed record UserEmailChangedEvent(
+    Guid UserId,
+    string OldEmail,
+    string NewEmail,
+    DateTime ChangedAt) : IDomainEvent
+{
+    public DateTime OccurredOn { get; } = DateTime.UtcNow;
+}
+
+// Events/UserProfileUpdatedEvent.cs
+public sealed record UserProfileUpdatedEvent(
+    Guid UserId,
+    UserProfile NewProfile,
+    DateTime UpdatedAt) : IDomainEvent
+{
+    public DateTime OccurredOn { get; } = DateTime.UtcNow;
+}
+
+// Events/UserDeactivatedEvent.cs
+public sealed record UserDeactivatedEvent(
+    Guid UserId,
+    DateTime DeactivatedAt) : IDomainEvent
+{
+    public DateTime OccurredOn { get; } = DateTime.UtcNow;
+}
+```
+
+#### 6. Repository Interfaces
+
+```csharp
+// Repositories/IUserRepository.cs
+namespace Deliris.IdentityService.Domain.Repositories;
+
+public interface IUserRepository
+{
+    Task<User?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<User?> GetByEmailAsync(string email, CancellationToken cancellationToken = default);
+    Task<User?> GetByUserNameAsync(string userName, CancellationToken cancellationToken = default);
+    Task<bool> ExistsAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<bool> ExistsByEmailAsync(string email, CancellationToken cancellationToken = default);
+    Task<bool> ExistsByUserNameAsync(string userName, CancellationToken cancellationToken = default);
+    Task AddAsync(User user, CancellationToken cancellationToken = default);
+    void Update(User user);
+    void Remove(User user);
+}
+
+// Repositories/IRoleRepository.cs
+public interface IRoleRepository
+{
+    Task<Role?> GetByIdAsync(Guid id, CancellationToken cancellationToken = default);
+    Task<Role?> GetByNameAsync(string name, CancellationToken cancellationToken = default);
+    Task<IEnumerable<Role>> GetAllAsync(CancellationToken cancellationToken = default);
+    Task AddAsync(Role role, CancellationToken cancellationToken = default);
+    void Update(Role role);
+    void Remove(Role role);
+}
+
+// Repositories/IIdentityUnitOfWork.cs
+public interface IIdentityUnitOfWork : IDisposable
+{
+    IUserRepository Users { get; }
+    IRoleRepository Roles { get; }
+    Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
+    Task BeginTransactionAsync(CancellationToken cancellationToken = default);
+    Task CommitTransactionAsync(CancellationToken cancellationToken = default);
+    Task RollbackTransactionAsync(CancellationToken cancellationToken = default);
+}
+```
+
+#### 7. Domain Exceptions

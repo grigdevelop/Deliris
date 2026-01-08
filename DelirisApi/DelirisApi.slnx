@@ -5,6 +5,7 @@
     <Project Path="src/Aspire/DelirisApi.ServiceDefaults/DelirisApi.ServiceDefaults.csproj" />
   </Folder>
   <Folder Name="/src/BuildingBlocks/">
+    <Project Path="src/BuildingBlocks/Deliris.BuildingBlocks.Application/Deliris.BuildingBlocks.Application.csproj" />
     <Project Path="src/BuildingBlocks/Deliris.BuildingBlocks.Domain.Abstractions/Deliris.BuildingBlocks.Domain.Abstractions.csproj" />
     <Project Path="src/BuildingBlocks/Deliris.BuildingBlocks.Domain/Deliris.BuildingBlocks.Domain.csproj" />
   </Folder>
